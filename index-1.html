@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0f14">
+<title>Eötvös Sensor Logger v3</title>
+<style>
+:root{color-scheme:dark;--bg:#0b0f14;--panel:#121923;--panel2:#182231;--text:#eef4fb;--muted:#91a2b6;--line:#263447;--accent:#69a7ff;--ok:#63d297;--warn:#ffc861;--bad:#ff7b7b}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",sans-serif}main{max-width:980px;margin:auto;padding:18px}h1{font-size:1.5rem;margin:0 0 5px}.sub,.note{color:var(--muted);line-height:1.55}.sub{margin:0 0 16px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px}.card h2{font-size:1rem;margin:0 0 10px}.row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}button,input{font:inherit}button{border:1px solid var(--line);border-radius:10px;padding:10px 13px;background:var(--panel2);color:var(--text);font-weight:700}button.primary{background:var(--accent);color:#07101d;border-color:transparent}button.danger{background:#401d25;border-color:#73303c}button:disabled{opacity:.45}input[type=text],input[type=number]{width:100%;background:#0d141d;color:var(--text);border:1px solid var(--line);border-radius:9px;padding:9px}label{font-size:.88rem;color:var(--muted)}.kv{display:grid;grid-template-columns:1fr auto;gap:6px 12px;font-variant-numeric:tabular-nums}.kv span:nth-child(odd){color:var(--muted)}.status{display:flex;gap:8px;align-items:flex-start;margin:5px 0}.dot{width:9px;height:9px;border-radius:50%;background:var(--bad);margin-top:5px;flex:none}.dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.diag{font:12px ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;background:#0d141d;border:1px solid var(--line);border-radius:10px;padding:10px;min-height:90px;max-height:240px;overflow:auto}.check{display:flex;gap:8px;align-items:center;color:var(--text)}canvas{width:100%;height:180px;background:#0d141d;border:1px solid var(--line);border-radius:10px}code{background:#0d141d;border:1px solid var(--line);border-radius:5px;padding:1px 5px}.banner{border-radius:10px;padding:10px 12px;margin-bottom:12px;background:#261f10;border:1px solid #6c5520;color:#ffe0a0}
+.mark-panel{margin-top:10px;padding:12px;border-radius:12px;background:#0d141d;border:1px solid var(--line)}
+.mark-current{font-size:1.05rem;font-weight:800;min-height:1.5em;color:var(--ok)}
+.mark-meta{font-size:.82rem;color:var(--muted);margin-top:4px}
+.mark-history{margin-top:8px;font-size:.78rem;color:var(--muted);line-height:1.45;max-height:5.8em;overflow:auto}
+.mark-flash{animation:markFlash .7s ease}
+@keyframes markFlash{0%{box-shadow:0 0 0 0 rgba(99,210,151,.8);background:#173628}100%{box-shadow:0 0 0 18px rgba(99,210,151,0);background:#0d141d}}
+button.mark-hit{background:#245c40!important;border-color:#63d297!important;color:#eafff3!important}
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(18px);background:#173628;color:#eafff3;border:1px solid #63d297;border-radius:12px;padding:11px 16px;font-weight:800;opacity:0;pointer-events:none;transition:.2s;z-index:9999;max-width:90vw;text-align:center}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.hidden{display:none}hr{border:0;border-top:1px solid var(--line);margin:12px 0}
+</style>
+</head>
+<body><main>
+<h1>Eötvös Sensor Logger v3</h1>
+<p class="sub">Android Chrome向け。重力込み加速度を記録し、端末姿勢から地表座標系へ変換してCSV保存します。MARKの画面表示・履歴・振動フィードバックにも対応しています。</p>
+<div id="embedWarn" class="banner hidden"></div>
+
+<div class="grid">
+<section class="card">
+<h2>① センサー診断</h2>
+<div class="row"><button class="primary" id="diagBtn">センサー診断</button><button id="testBtn">3秒テスト</button></div>
+<div style="height:10px"></div><div id="diag" class="diag">未診断</div>
+<p class="note">Chromeで権限を直す場合：アドレスバー左のサイト情報 → 権限、または Chrome設定 → サイトの設定 → モーション センサー。ChatGPT内プレビューではなく、GitHub PagesのHTTPS URLをChromeで直接開いてください。</p>
+</section>
+
+<section class="card">
+<h2>② 記録</h2>
+<label>セッション名</label><input id="session" type="text" placeholder="新安城_知立_西行き_01">
+<div style="height:9px"></div><label class="check"><input id="gpsEnable" type="checkbox"> GPSも記録する</label>
+<div style="height:10px"></div>
+<div class="row"><button class="primary" id="startBtn">計測開始</button><button class="danger" id="stopBtn" disabled>停止</button><button id="saveBtn" disabled>CSV保存</button><button id="clearBtn">クリア</button></div>
+<div style="height:10px"></div><div class="row"><button id="markBrake" disabled>MARK: ブレーキ</button><button id="markSteady" disabled>MARK: 定速</button><button id="markOther" disabled>MARK: 任意</button></div>
+<div id="markPanel" class="mark-panel">
+  <div class="note" style="margin:0 0 3px">最新MARK</div>
+  <div id="markCurrent" class="mark-current">まだありません</div>
+  <div id="markMeta" class="mark-meta">MARKを押すと、次のセンサーサンプルのCSVにも記録されます。</div>
+  <div id="markHistory" class="mark-history"></div>
+</div>
+<hr><div class="status"><span class="dot" id="sensorDot"></span><span id="sensorText">センサー未開始</span></div>
+</section>
+
+<section class="card">
+<h2>ライブ値</h2>
+<div class="kv"><span>Earth Up（重力込み）</span><b id="egu">—</b><span>1秒平均 Up</span><b id="eguAvg">—</b><span>|g-force|</span><b id="gmag">—</b><span>イベント周波数</span><b id="hz">—</b><span>記録行数</span><b id="count">0</b><span>経過時間</span><b id="elapsed">0.0 s</b></div>
+<p class="note">スマホを静止させたとき、Earth Up が概ね <code>+9.8 m/s²</code> になるか必ず確認してください。ならない場合は、そのまま本実験に使わないでください。</p>
+</section>
+
+<section class="card">
+<h2>姿勢</h2><div class="kv"><span>α</span><b id="oa">—</b><span>β</span><b id="ob">—</b><span>γ</span><b id="og">—</b><span>absolute</span><b id="oabs">—</b><span>画面回転</span><b id="screenAngle">—</b></div>
+<p class="note">生データは変更せずCSVに残します。地表座標変換値は後処理の検算用です。</p>
+</section>
+
+<section class="card">
+<h2>理論値の目安</h2>
+<div class="row"><div style="flex:1"><label>緯度 [°]</label><input id="latCalc" type="number" value="35.0" step="0.1"></div><div style="flex:1"><label>速度 [km/h]</label><input id="speedCalc" type="number" value="90" step="1"></div><div style="flex:1"><label>東向き成分 [%]</label><input id="eastPct" type="number" value="100" step="1"></div></div>
+<div style="height:10px"></div><div class="kv"><span>片方向 |Δg|</span><b id="dgOne">—</b><span>往復差</span><b id="dgRound">—</b></div>
+<p class="note"><code>|Δg| = 2 Ω |v_E| cosφ</code> の一次項のみ。</p>
+</section>
+</div>
+
+<section class="card" style="margin-top:12px"><h2>Earth Up ライブグラフ（直近15秒）</h2><canvas id="chart" width="900" height="260"></canvas></section>
+<section class="card" style="margin-top:12px"><h2>重要</h2><p class="note">スマホ/ブラウザの加速度値は校正済み重力計ではなく、OSやブラウザによる処理を受ける場合があります。このページは「重力込み値を取得できるか」の実験用ロガーです。エトヴェシュ効果の判定には往復反復・速度情報・統計解析が必要です。</p></section>
+</main>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script>
+'use strict';
+const $=id=>document.getElementById(id);const fmt=(x,n=5)=>Number.isFinite(x)?x.toFixed(n):'';
+let recording=false,rows=[],startPerf=0,lastMotionPerf=null,pendingMarker='',markHistory=[];
+let latestOri={alpha:null,beta:null,gamma:null,absolute:null};
+let latestGps={lat:null,lon:null,alt:null,altAcc:null,speed:null,heading:null,hAcc:null};
+let gpsWatch=null,graph=[],rolling=[],motionEvents=0,orientationEvents=0,lastGinc=null;
+const headers=['iso_time','elapsed_s','event_dt_ms','session','marker','lin_dev_x_mps2','lin_dev_y_mps2','lin_dev_z_mps2','g_dev_x_mps2','g_dev_y_mps2','g_dev_z_mps2','lin_earth_x_mps2','lin_earth_y_mps2','lin_earth_up_mps2','g_earth_x_mps2','g_earth_y_mps2','g_earth_up_mps2','g_force_mag_mps2','ori_alpha_deg','ori_beta_deg','ori_gamma_deg','ori_absolute','rot_alpha_dps','rot_beta_dps','rot_gamma_dps','screen_angle_deg','gps_lat_deg','gps_lon_deg','gps_alt_m','gps_alt_accuracy_m','gps_speed_mps','gps_heading_deg','gps_horizontal_accuracy_m'];
+function csvEscape(v){if(v===null||v===undefined)return'';const s=String(v);return/[",\n]/.test(s)?'"'+s.replaceAll('"','""')+'"':s}
+function screenAngle(){return(screen.orientation&&Number.isFinite(screen.orientation.angle))?screen.orientation.angle:(Number.isFinite(window.orientation)?window.orientation:0)}
+function rotationMatrix(a,b,g){if(![a,b,g].every(Number.isFinite))return null;const d=Math.PI/180,x=b*d,y=g*d,z=a*d,cX=Math.cos(x),cY=Math.cos(y),cZ=Math.cos(z),sX=Math.sin(x),sY=Math.sin(y),sZ=Math.sin(z);return[[cZ*cY-sZ*sX*sY,-cX*sZ,cY*sZ*sX+cZ*sY],[cY*sZ+cZ*sX*sY,cZ*cX,sZ*sY-cZ*cY*sX],[-cX*sY,sX,cX*cY]]}
+function mul(R,v){if(!R||!v.every(Number.isFinite))return[null,null,null];return[R[0][0]*v[0]+R[0][1]*v[1]+R[0][2]*v[2],R[1][0]*v[0]+R[1][1]*v[1]+R[1][2]*v[2],R[2][0]*v[0]+R[2][1]*v[1]+R[2][2]*v[2]]}
+function val3(o){return o?[Number.isFinite(o.x)?o.x:null,Number.isFinite(o.y)?o.y:null,Number.isFinite(o.z)?o.z:null]:[null,null,null]}
+function onOrientation(e){orientationEvents++;latestOri={alpha:Number.isFinite(e.alpha)?e.alpha:null,beta:Number.isFinite(e.beta)?e.beta:null,gamma:Number.isFinite(e.gamma)?e.gamma:null,absolute:typeof e.absolute==='boolean'?e.absolute:null};$('oa').textContent=latestOri.alpha===null?'—':fmt(latestOri.alpha,2)+'°';$('ob').textContent=latestOri.beta===null?'—':fmt(latestOri.beta,2)+'°';$('og').textContent=latestOri.gamma===null?'—':fmt(latestOri.gamma,2)+'°';$('oabs').textContent=latestOri.absolute===null?'—':String(latestOri.absolute);$('screenAngle').textContent=screenAngle()+'°'}
+function onMotion(e){motionEvents++;const now=performance.now(),dt=lastMotionPerf===null?null:now-lastMotionPerf;lastMotionPerf=now;const lin=val3(e.acceleration),ginc=val3(e.accelerationIncludingGravity);lastGinc=ginc;const R=rotationMatrix(latestOri.alpha,latestOri.beta,latestOri.gamma),linE=mul(R,lin),gE=mul(R,ginc),gmag=ginc.every(Number.isFinite)?Math.hypot(...ginc):null;if(Number.isFinite(gE[2])){$('egu').textContent=fmt(gE[2],5)+' m/s²';rolling.push({t:now,v:gE[2]});rolling=rolling.filter(p=>now-p.t<=1000);$('eguAvg').textContent=fmt(rolling.reduce((s,p)=>s+p.v,0)/rolling.length,5)+' m/s²';graph.push({t:now,v:gE[2]});graph=graph.filter(p=>now-p.t<=15000)}$('gmag').textContent=Number.isFinite(gmag)?fmt(gmag,5)+' m/s²':'—';$('hz').textContent=dt&&dt>0?fmt(1000/dt,1)+' Hz':'—';if(!recording)return;const elapsed=(now-startPerf)/1000,rr=e.rotationRate||{};rows.push([new Date().toISOString(),fmt(elapsed,6),dt===null?'':fmt(dt,3),$('session').value.trim(),pendingMarker,...lin.map(v=>fmt(v,6)),...ginc.map(v=>fmt(v,6)),...linE.map(v=>fmt(v,6)),...gE.map(v=>fmt(v,6)),fmt(gmag,6),fmt(latestOri.alpha,4),fmt(latestOri.beta,4),fmt(latestOri.gamma,4),latestOri.absolute===null?'':latestOri.absolute,fmt(rr.alpha,5),fmt(rr.beta,5),fmt(rr.gamma,5),screenAngle(),fmt(latestGps.lat,8),fmt(latestGps.lon,8),fmt(latestGps.alt,3),fmt(latestGps.altAcc,3),fmt(latestGps.speed,4),fmt(latestGps.heading,3),fmt(latestGps.hAcc,3)]);pendingMarker='';$('count').textContent=rows.length.toLocaleString();$('elapsed').textContent=elapsed.toFixed(1)+' s'}
+window.addEventListener('deviceorientation',onOrientation,true);window.addEventListener('devicemotion',onMotion,true);
+async function permissionState(name){try{if(!navigator.permissions||!navigator.permissions.query)return'APIなし';const r=await navigator.permissions.query({name});return r.state}catch(e){return'取得不可'} }
+function topLevel(){try{return window.self===window.top}catch(e){return false}}
+async function runDiag(){const lines=[];lines.push('URL: '+location.href);lines.push('protocol: '+location.protocol);lines.push('Secure Context: '+window.isSecureContext);lines.push('top-level page: '+topLevel());lines.push('DeviceMotionEvent: '+('DeviceMotionEvent'in window));lines.push('DeviceOrientationEvent: '+('DeviceOrientationEvent'in window));lines.push('requestPermission(motion): '+(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'));lines.push('requestPermission(orientation): '+(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'));lines.push('accelerometer permission: '+await permissionState('accelerometer'));lines.push('gyroscope permission: '+await permissionState('gyroscope'));lines.push('userAgent: '+navigator.userAgent);if(!window.isSecureContext)lines.push('\n【対処】HTTPSのGitHub Pages URLをChromeで直接開いてください。');if(!topLevel())lines.push('\n【対処】埋め込み表示です。ブラウザの「Chromeで開く」等でページを直接開いてください。');$('diag').textContent=lines.join('\n')}
+async function requestExplicitPermissionIfNeeded(){if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){const p=await DeviceMotionEvent.requestPermission();if(p!=='granted')throw new Error('モーションセンサー権限が denied です。ブラウザのサイト権限を確認してください。')}if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){const p=await DeviceOrientationEvent.requestPermission();if(p!=='granted')throw new Error('姿勢センサー権限が denied です。ブラウザのサイト権限を確認してください。')}}
+async function sensorTest(){await runDiag();if(!window.isSecureContext){$('diag').textContent+='\n\nテスト中止: Secure Contextではありません。';return}try{await requestExplicitPermissionIfNeeded()}catch(e){$('diag').textContent+='\n\n権限エラー: '+e.message;return}const m0=motionEvents,o0=orientationEvents;$('diag').textContent+='\n\n3秒間センサーイベントを待機中…';await new Promise(r=>setTimeout(r,3000));const dm=motionEvents-m0,doo=orientationEvents-o0;$('diag').textContent+='\nDeviceMotion events / 3s: '+dm+'\nDeviceOrientation events / 3s: '+doo;if(dm===0){$('diag').textContent+='\n\n【NG】モーションイベントが0件です。Chrome → 設定 → サイトの設定 → モーション センサーを許可し、このサイトの権限をリセットして再読み込みしてください。'}else if(!lastGinc||!lastGinc.some(Number.isFinite)){$('diag').textContent+='\n\n【NG】イベントは届いていますが accelerationIncludingGravity が空です。このブラウザでは目的の値を取得できません。'}else{$('diag').textContent+='\n\n【OK】重力込み加速度を取得できています。端末を静止させて Earth Up ≈ +9.8 m/s² を確認してください。'}}
+function startGps(){if(!$('gpsEnable').checked)return;if(!navigator.geolocation){return}gpsWatch=navigator.geolocation.watchPosition(p=>{const c=p.coords;latestGps={lat:c.latitude,lon:c.longitude,alt:c.altitude,altAcc:c.altitudeAccuracy,speed:c.speed,heading:c.heading,hAcc:c.accuracy}},()=>{}, {enableHighAccuracy:true,maximumAge:0,timeout:15000})}
+function stopGps(){if(gpsWatch!==null){navigator.geolocation.clearWatch(gpsWatch);gpsWatch=null}}
+async function startRecording(){if(!window.isSecureContext){$('sensorText').textContent='HTTPSで開いてください';return}try{await requestExplicitPermissionIfNeeded();const m0=motionEvents;await new Promise(r=>setTimeout(r,500));if(motionEvents===m0)throw new Error('センサーイベントが届いていません。先に「3秒テスト」を実行してください。');rows=[];markHistory=[];updateMarkUI();startPerf=performance.now();recording=true;pendingMarker='START';startGps();$('startBtn').disabled=true;$('stopBtn').disabled=false;$('saveBtn').disabled=true;['markBrake','markSteady','markOther'].forEach(id=>$(id).disabled=false);$('sensorDot').className='dot ok';$('sensorText').textContent='記録中'}catch(e){$('sensorDot').className='dot';$('sensorText').textContent=e.message}}
+function stopRecording(){if(!recording)return;recording=false;stopGps();$('startBtn').disabled=false;$('stopBtn').disabled=true;$('saveBtn').disabled=rows.length===0;['markBrake','markSteady','markOther'].forEach(id=>$(id).disabled=true);$('sensorDot').className='dot warn';$('sensorText').textContent='停止済み'}
+function saveCsv(){if(!rows.length)return;const lines=[headers.map(csvEscape).join(',')];for(const r of rows)lines.push(r.map(csvEscape).join(','));const blob=new Blob(['\uFEFF'+lines.join('\n')],{type:'text/csv;charset=utf-8'}),a=document.createElement('a'),stamp=new Date().toISOString().replaceAll(':','-').replace(/\.\d+Z$/,'Z'),label=($('session').value.trim()||'eotvos').replace(/[\\/:*?"<>|]/g,'_');a.href=URL.createObjectURL(blob);a.download=label+'_'+stamp+'.csv';document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1000)}
+function clearData(){if(recording)return;rows=[];graph=[];rolling=[];markHistory=[];pendingMarker='';updateMarkUI();$('count').textContent='0';$('elapsed').textContent='0.0 s';$('saveBtn').disabled=true}
+function updateMarkUI(){
+  const cur=$('markCurrent'),meta=$('markMeta'),hist=$('markHistory');
+  if(!markHistory.length){cur.textContent='まだありません';meta.textContent='MARKを押すと、次のセンサーサンプルのCSVにも記録されます。';hist.textContent='';return}
+  const m=markHistory[markHistory.length-1];
+  cur.textContent='✓ '+m.label;
+  meta.textContent=`経過 ${m.elapsed.toFixed(2)} s ・ ${m.clock}`;
+  hist.innerHTML='<b>直近のMARK</b><br>'+markHistory.slice(-5).reverse().map(x=>`• ${x.elapsed.toFixed(2)} s　${escapeHtml(x.label)}`).join('<br>');
+}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+let toastTimer=null;
+function showToast(text){const t=$('toast');t.textContent=text;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),1500)}
+function mark(s,buttonId){
+  if(!recording)return;
+  const now=performance.now();
+  const elapsed=(now-startPerf)/1000;
+  pendingMarker=s;
+  const clock=new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  markHistory.push({label:s,elapsed,clock});
+  updateMarkUI();
+  const p=$('markPanel');p.classList.remove('mark-flash');void p.offsetWidth;p.classList.add('mark-flash');
+  if(buttonId){const b=$(buttonId);b.classList.add('mark-hit');setTimeout(()=>b.classList.remove('mark-hit'),700)}
+  if(navigator.vibrate)navigator.vibrate(40);
+  showToast(`MARK記録: ${s}  (${elapsed.toFixed(1)} s)`);
+}
+function calcTheory(){const lat=Number($('latCalc').value),kmh=Number($('speedCalc').value),pct=Number($('eastPct').value);if(![lat,kmh,pct].every(Number.isFinite))return;const O=7.2921150e-5,vE=(kmh/3.6)*(pct/100),dg=2*O*vE*Math.cos(lat*Math.PI/180);$('dgOne').textContent=Math.abs(dg).toExponential(4)+' m/s²';$('dgRound').textContent=(2*Math.abs(dg)).toExponential(4)+' m/s²'}
+function draw(){const c=$('chart'),ctx=c.getContext('2d'),W=c.width,H=c.height;ctx.clearRect(0,0,W,H);ctx.strokeStyle='#263447';ctx.lineWidth=1;for(let i=1;i<5;i++){const y=i*H/5;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke()}if(graph.length>1){const t1=graph[graph.length-1].t,t0=t1-15000,vals=graph.map(p=>p.v);let min=Math.min(...vals),max=Math.max(...vals);if(max-min<.05){const m=(max+min)/2;min=m-.025;max=m+.025}ctx.strokeStyle='#69a7ff';ctx.lineWidth=2;ctx.beginPath();graph.forEach((p,i)=>{const x=(p.t-t0)/15000*W,y=H-(p.v-min)/(max-min)*H;i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.stroke();ctx.fillStyle='#91a2b6';ctx.font='14px system-ui';ctx.fillText(max.toFixed(3)+' m/s²',8,18);ctx.fillText(min.toFixed(3)+' m/s²',8,H-8)}requestAnimationFrame(draw)}
+$('diagBtn').onclick=runDiag;$('testBtn').onclick=sensorTest;$('startBtn').onclick=startRecording;$('stopBtn').onclick=stopRecording;$('saveBtn').onclick=saveCsv;$('clearBtn').onclick=clearData;$('markBrake').onclick=()=>mark('BRAKE','markBrake');$('markSteady').onclick=()=>mark('STEADY','markSteady');$('markOther').onclick=()=>{const s=prompt('マーカー名');if(s)mark(s.trim().slice(0,80),'markOther')};['latCalc','speedCalc','eastPct'].forEach(id=>$(id).addEventListener('input',calcTheory));
+if(!topLevel()){const e=$('embedWarn');e.classList.remove('hidden');e.textContent='このページは埋め込み表示されています。センサーが拒否される場合があります。GitHub Pagesに公開後、URLをChromeで直接開いてください。'}
+if(!window.isSecureContext){const e=$('embedWarn');e.classList.remove('hidden');e.textContent='このページはSecure Contextではありません。GitHub PagesなどのHTTPS URLで開いてください。'}
+updateMarkUI();calcTheory();runDiag();draw();
+</script></body></html>
